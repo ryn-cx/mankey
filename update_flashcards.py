@@ -59,17 +59,31 @@ class AnkiConnector:
 
         raise ValueError(error_message)
 
-    def manki_notes(self):
-        params = {
-            "query": "tag:mankey",
-        }
+    def manki_notes(self) -> list[int]:
+        """Fetches the notes tagged with 'mankey' from Anki.
+
+        Returns:
+            list[int]: A list of note IDs.
+        """
+        params = {"query": "tag:mankey"}
         return AnkiConnector().invoke("findNotes", params)
 
     def delete_notes(self, notes: list[int]) -> None:
-        params = {
-            "notes": notes,
-        }
+        """Deletes the specified notes from Anki.
+
+        Args:
+            notes (list[int]): A list of note IDs to delete.
+        """
+        params = {"notes": notes}
         AnkiConnector().invoke("deleteNotes", params)
+
+    def model_names(self) -> list[str]:
+        """Fetches the model names from Anki.
+
+        Returns:
+            list[str]: A list of model names.
+        """
+        return AnkiConnector().invoke("modelNames", {})
 
 
 class MDFile(AnkiConnector):
@@ -338,7 +352,7 @@ class MDFile(AnkiConnector):
         }
         self.invoke("storeMediaFile", params)
 
-    def add_flashcard(self, question: str, answer: str) -> int:
+    def add_flashcard(self, question: str, answer: str, card_model: str) -> int:
         """Adds a flashcard.
 
         This function constructs a request with the action "addNote", the deck name, the model name "Basic",
@@ -348,6 +362,7 @@ class MDFile(AnkiConnector):
         Args:
             question (str): The question of the flashcard.
             answer (str): The answer of the flashcard.
+            card_model (str): The model name of the flashcard.
 
         Returns:
             int: The result of the request.
@@ -355,7 +370,7 @@ class MDFile(AnkiConnector):
         params = {
             "note": {
                 "deckName": self.deck_name,
-                "modelName": "Basic",
+                "modelName": card_model,
                 "fields": {
                     "Front": question,
                     "Back": answer,
@@ -365,7 +380,7 @@ class MDFile(AnkiConnector):
         }
         return self.invoke("addNote", params)
 
-    def update_flashcard(self, question: str, answer: str, anki_id: int) -> int:
+    def update_flashcard(self, question: str, answer: str, card_model: str, anki_id: int) -> int:
         """Updates a flashcard.
 
         This function constructs a request with the action "updateNoteFields", the Anki ID, and the question and answer,
@@ -374,6 +389,7 @@ class MDFile(AnkiConnector):
         Args:
             question (str): The new question of the flashcard.
             answer (str): The new answer of the flashcard.
+            card_model (str): The model name of the flashcard.
             anki_id (int): The Anki ID of the flashcard to be updated.
 
         Returns:
@@ -383,6 +399,7 @@ class MDFile(AnkiConnector):
             "note": {
                 "deckName": self.deck_name,
                 "id": anki_id,
+                "modelName": card_model,
                 "fields": {
                     "Front": question,
                     "Back": answer,
@@ -429,6 +446,7 @@ class MDFile(AnkiConnector):
         for i in range(0, len(self.flashcard_tags), 3):
             tags_group = self.flashcard_tags[i : i + 3]
             lines_group = self.flashcard_lines[i : i + 3]
+            card_model = "Basic (and reversed card)" if tags_group[0] == "#flashcard-reverse" else "Basic"
 
             question, answer, anki_id = self.parse_flashcard(lines_group, tags_group)
 
@@ -438,9 +456,9 @@ class MDFile(AnkiConnector):
                 if result == [{}]:
                     print(f"Note with id {anki_id} does not exist")
                 else:
-                    self.update_flashcard(question, answer, anki_id)
+                    self.update_flashcard(question, answer, card_model, anki_id)
             else:
-                returned_id = self.add_flashcard(question, answer)
+                returned_id = self.add_flashcard(question, answer, card_model)
                 if not returned_id:
                     print("Error adding card")
                 else:
