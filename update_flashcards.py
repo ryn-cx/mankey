@@ -15,7 +15,10 @@ import markdown
 
 
 class AnkiConnector:
-    def request(self, action: str, **params: Any) -> dict[str, Any]:
+    IMAGE_REGEX = r"!\[.*?\]\((.*?)\)"
+
+    @classmethod
+    def request(cls, action: str, **params: Any) -> dict[str, Any]:
         """Constructs a request dictionary with the given action, parameters, and version.
 
         Args:
@@ -27,7 +30,8 @@ class AnkiConnector:
         """
         return {"action": action, "params": params, "version": 6}
 
-    def invoke(self, action: str, params: Any) -> Any:
+    @classmethod
+    def invoke(cls, action: str, params: Any) -> Any:
         """Sends a request and returns the result.
 
         This function constructs a request with the given action and parameters, sends the request,
@@ -44,7 +48,7 @@ class AnkiConnector:
             ValueError: If the response is not valid.
             URLError: If the request fails.
         """
-        request_json = json.dumps(self.request(action, **params)).encode("utf-8")
+        request_json = json.dumps(cls.request(action, **params)).encode("utf-8")
         response = json.load(urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:8765", request_json)))
         if len(response) != 2:
             error_message = "response has an unexpected number of fields"
@@ -59,38 +63,159 @@ class AnkiConnector:
 
         raise ValueError(error_message)
 
-    def manki_notes(self) -> list[int]:
+    @classmethod
+    def manki_notes(cls) -> list[int]:
         """Fetches the notes tagged with 'mankey' from Anki.
 
         Returns:
             list[int]: A list of note IDs.
         """
         params = {"query": "tag:mankey"}
-        return AnkiConnector().invoke("findNotes", params)
+        return cls.invoke("findNotes", params)
 
-    def delete_notes(self, notes: list[int]) -> None:
+    @classmethod
+    def delete_notes(cls, notes: list[int]) -> None:
         """Deletes the specified notes from Anki.
 
         Args:
             notes (list[int]): A list of note IDs to delete.
         """
         params = {"notes": notes}
-        AnkiConnector().invoke("deleteNotes", params)
+        cls.invoke("deleteNotes", params)
 
-    def model_names(self) -> list[str]:
+    @classmethod
+    def model_names(cls) -> list[str]:
         """Fetches the model names from Anki.
 
         Returns:
             list[str]: A list of model names.
         """
-        return AnkiConnector().invoke("modelNames", {})
+        return cls.invoke("modelNames", {})
+
+    @classmethod
+    def create_deck(cls, deck_name: str) -> None:
+        """Creates a deck with the name stored in self.deck_name.
+
+        This function constructs a request with the action "createDeck" and the parameter "deck" set to self.deck_name,
+        and sends the request using the invoke method. If the deck already exists, nothing happens.
+
+        Returns:
+            None
+        """
+        # For simplicity just create the deck without checking if it exists, if it exists nothing happens
+        params = {"deck": deck_name}
+        cls.invoke("createDeck", params)
+
+    @classmethod
+    def store_media_file(cls, file_name: str, data: bytes) -> None:
+        """Stores a media file.
+
+        This function constructs a request with the action "storeMediaFile", the file name, and the base64 encoded data,
+        and sends the request using the invoke method.
+
+        Args:
+            file_name (str): The name of the file to be stored.
+            data (bytes): The data of the file to be stored.
+
+        Returns:
+            None
+        """
+        params = {
+            "filename": file_name,
+            "data": base64.b64encode(data).decode("utf-8"),
+        }
+        cls.invoke("storeMediaFile", params)
+
+    @classmethod
+    def add_flashcard(cls, deck_name: str, question: str, answer: str, card_model: str) -> int:
+        """Adds a flashcard.
+
+        This function constructs a request with the action "addNote", the deck name, the model name "Basic",
+        and the question and answer, and sends the request using the invoke method. It returns the result of the
+        request.
+
+        Args:
+            deck_name (str): The name of the deck to add the flashcard to.
+            question (str): The question of the flashcard.
+            answer (str): The answer of the flashcard.
+            card_model (str): The model name of the flashcard.
+
+        Returns:
+            int: The result of the request.
+        """
+        params = {
+            "note": {
+                "deckName": deck_name,
+                "modelName": card_model,
+                "fields": {
+                    "Front": question,
+                    "Back": answer,
+                },
+                "tags": ["mankey"],
+            },
+        }
+        return cls.invoke("addNote", params)
+
+    @classmethod
+    def update_flashcard(cls, deck_name: str, question: str, answer: str, card_model: str, anki_id: int) -> int:
+        """Updates a flashcard.
+
+        This function constructs a request with the action "updateNoteFields", the Anki ID, and the question and answer,
+        and sends the request using the invoke method. It returns the result of the request.
+
+        Args:
+            question (str): The new question of the flashcard.
+            answer (str): The new answer of the flashcard.
+            card_model (str): The model name of the flashcard.
+            anki_id (int): The Anki ID of the flashcard to be updated.
+
+        Returns:
+            int: The result of the request.
+        """
+        params = {
+            "note": {
+                "deckName": deck_name,
+                "id": anki_id,
+                "modelName": card_model,
+                "fields": {
+                    "Front": question,
+                    "Back": answer,
+                },
+                "tags": ["mankey"],
+            },
+        }
+        return cls.invoke("updateNote", params)
+
+    @classmethod
+    def import_flashcard(
+        cls, deck_name: str, question: str, answer: str, card_model: str, anki_id: int | None
+    ) -> int | None:
+        """Imports a flashcard.
+
+        This function constructs a request with the action "addNote", the deck name, the model name "Basic",
+        and the question and answer, and sends the request using the invoke method. It returns the result of the
+        request.
+
+        Args:
+            question (str): The question of the flashcard.
+            answer (str): The answer of the flashcard.
+            card_model (str): The model name of the flashcard.
+
+        Returns:
+            None
+        """
+        if anki_id:
+            params = {"notes": [anki_id]}
+            result = cls.invoke("notesInfo", params)
+            if result == [{}]:
+                print(f"Note with id {anki_id} does not exist")
+            else:
+                cls.update_flashcard(deck_name, question, answer, card_model, anki_id)
+        else:
+            return cls.add_flashcard(deck_name, question, answer, card_model)
 
 
-class MDFile(AnkiConnector):
-    """A class to import flashcards from a markdown file to Anki."""
-
-    IMAGE_REGEX = r"!\[.*?\]\((.*?)\)"
-
+class SharedFlashcard(AnkiConnector):
     def __init__(self, input_dir: str, file_name: str) -> None:
         """Initialize the class with the input directory and file name.
 
@@ -101,18 +226,30 @@ class MDFile(AnkiConnector):
         self.input_dir = input_dir
         self.file_name = file_name
 
-    @classmethod
-    def base_64_encoded_image(cls, image_path: str) -> str:
-        """Reads a file and returns its base64 encoded string.
+    @cached_property
+    def deck_name(self) -> str:
+        """Returns the deck name derived from the file name.
 
-        Args:
-            image_path (str): The path to the file to be encoded.
+        This function removes the input directory prefix and the '.md' suffix from the file name,
+        replaces '/' with '::', and returns the result as the deck name.
 
         Returns:
-            str: The base64 encoded string of the file content.
+            str: The deck name.
         """
-        with Path(image_path).open("rb") as img_content:
-            return base64.b64encode(img_content.read()).decode("utf-8")
+        return self.file_name.removeprefix(f"{self.input_dir}/").removesuffix(".md").replace("/", "::")
+
+    @cached_property
+    def file_lines(self) -> list[str]:
+        """Reads the file and returns its lines.
+
+        This function opens the file in read mode with utf-8 encoding, reads the file,
+        splits it into lines, and returns the lines.
+
+        Returns:
+            List[str]: The lines of the file.
+        """
+        with Path(self.file_name).open("r", encoding="utf-8") as file:
+            return file.read().splitlines()
 
     @classmethod
     def markdown_to_anki(cls, string: str) -> str:
@@ -135,113 +272,6 @@ class MDFile(AnkiConnector):
 
         # This does some general markdown conversion, most importantly it converts tables
         return markdown.markdown(latex_done, extensions=["tables"])
-
-    @cached_property
-    def deck_name(self) -> str:
-        """Returns the deck name derived from the file name.
-
-        This function removes the input directory prefix and the '.md' suffix from the file name,
-        replaces '/' with '::', and returns the result as the deck name.
-
-        Returns:
-            str: The deck name.
-        """
-        return self.file_name.removeprefix(f"{self.input_dir}/").removesuffix(".md").replace("/", "::")
-
-    @cached_property
-    def has_flashcards(self) -> bool:
-        """Checks if the file has valid flashcards.
-
-        This function checks if the flashcard tags are valid and if there are any tags.
-        If the tags are invalid or there are no tags, it logs that information and returns False.
-        Otherwise, it returns True.
-
-        Returns:
-            bool: True if the file has valid flashcards, False otherwise.
-        """
-        # If there are no tags then there are no flashcards in the file
-        if len(self.flashcard_tags) == 0:
-            return False
-
-        # If the tags are invalid log that information so it can be fixed
-        if not all(
-            start in ("#flashcard-regular", "#flashcard-reverse")
-            and middle == "#flashcard-middle"
-            and end == "#flashcard-end"
-            for start, middle, end in zip(*[iter(self.flashcard_tags)] * 3)
-        ):
-            print(f"{self.file_name} has invalid flashcard tags")
-            return False
-
-        return True
-
-    @cached_property
-    def file_lines(self) -> list[str]:
-        """Reads the file and returns its lines.
-
-        This function opens the file in read mode with utf-8 encoding, reads the file,
-        splits it into lines, and returns the lines.
-
-        Returns:
-            List[str]: The lines of the file.
-        """
-        with Path(self.file_name).open("r", encoding="utf-8") as file:
-            return file.read().splitlines()
-
-    @cached_property
-    def flashcard_tags(self) -> list[str]:
-        """Returns the flashcard tags.
-
-        This function calls the _parse_flashcards method and returns the first element of the result.
-
-        Returns:
-            List[str]: The flashcard tags.
-        """
-        return self.parse_flashcards[0]
-
-    @cached_property
-    def flashcard_lines(self) -> list[int]:
-        """Returns the flashcard lines.
-
-        This function calls the _parse_flashcards method and returns the second element of the result.
-
-        Returns:
-            List[int]: The flashcard lines.
-        """
-        return self.parse_flashcards[1]
-
-    @cached_property
-    def parse_flashcards(self) -> tuple[list[str], list[int]]:
-        """Parses the file lines and returns the flashcard tags and their line numbers.
-
-        This function iterates over the lines of the file. For each line, it splits the line into words,
-        checks if each word starts with "#flashcard-", and if so, appends the word to flashcard_tags and
-        the line number to flashcard_lines. It returns flashcard_tags and flashcard_lines.
-
-        Returns:
-            Tuple[List[str], List[int]]: The flashcard tags and their line numbers.
-        """
-        flashcard_tags: list[str] = []
-        flashcard_lines: list[int] = []
-        for line_number, line in enumerate(self.file_lines):
-            for word in line.split():
-                if word.startswith("#flashcard-"):
-                    flashcard_tags.append(word)
-                    flashcard_lines.append(line_number)
-        return flashcard_tags, flashcard_lines
-
-    def create_deck(self) -> None:
-        """Creates a deck with the name stored in self.deck_name.
-
-        This function constructs a request with the action "createDeck" and the parameter "deck" set to self.deck_name,
-        and sends the request using the invoke method. If the deck already exists, nothing happens.
-
-        Returns:
-            None
-        """
-        # For simplicity just create the deck without checking if it exists, if it exists nothing happens
-        params = {"deck": self.deck_name}
-        self.invoke("createDeck", params)
 
     def import_images(self, line_content: str) -> None:
         """Searches for images in the line content and imports them.
@@ -297,7 +327,115 @@ class MDFile(AnkiConnector):
             answer = re.sub(anki_id_regex, "", answer)
         return answer, anki_id
 
-    def parse_flashcard(
+    def write_file(self) -> None:
+        """Writes the file lines to the file.
+
+        This function opens the file in write mode with utf-8 encoding, joins the file lines with newline characters,
+        and writes the result to the file.
+
+        Returns:
+            None
+        """
+        with Path(self.file_name).open("w", encoding="utf-8") as file:
+            file.write("\n".join(self.file_lines))
+
+
+class EnclosedFlashcard(SharedFlashcard):
+    @cached_property
+    def has_enclosed_flashcards(self) -> bool:
+        """Checks if the file has valid flashcards.
+
+        This function checks if the flashcard tags are valid and if there are any tags.
+        If the tags are invalid or there are no tags, it logs that information and returns False.
+        Otherwise, it returns True.
+
+        Returns:
+            bool: True if the file has valid flashcards, False otherwise.
+        """
+        # If there are no tags then there are no flashcards in the file
+        if len(self.enclosed_flashcard_tags) == 0:
+            return False
+
+        # If the tags are invalid log that information so it can be fixed
+        if not all(
+            start in ("#flashcard-regular", "#flashcard-reverse")
+            and middle == "#flashcard-middle"
+            and end == "#flashcard-end"
+            for start, middle, end in zip(*[iter(self.enclosed_flashcard_tags)] * 3)
+        ):
+            print(f"{self.file_name} has invalid flashcard tags")
+            return False
+
+        return True
+
+    @cached_property
+    def get_enclosed_flashcard_tags_and_lines(self) -> tuple[list[str], list[int]]:
+        """Parses the file lines and returns the flashcard tags and their line numbers.
+
+        This function iterates over the lines of the file. For each line, it splits the line into words,
+        checks if each word starts with "#flashcard-", and if so, appends the word to flashcard_tags and
+        the line number to flashcard_lines. It returns flashcard_tags and flashcard_lines.
+
+        Returns:
+            Tuple[List[str], List[int]]: The flashcard tags and their line numbers.
+        """
+        flashcard_tags: list[str] = []
+        flashcard_lines: list[int] = []
+        for line_number, line in enumerate(self.file_lines):
+            for word in line.split():
+                if word.startswith("#flashcard-"):
+                    flashcard_tags.append(word)
+                    flashcard_lines.append(line_number)
+        return flashcard_tags, flashcard_lines
+
+    def import_enclosed_flashcards(self) -> None:
+        """Imports the flashcards.
+
+        This function iterates over the flashcard tags and lines in groups of 3. For each group,
+        it parses the flashcard, checks if the flashcard has an Anki ID, and if so, updates the flashcard,
+        otherwise, adds the flashcard. After each flashcard is processed, it writes the file.
+
+        Returns:
+            None
+        """
+        for i in range(0, len(self.enclosed_flashcard_tags), 3):
+            tags_group = self.enclosed_flashcard_tags[i : i + 3]
+            lines_group = self.enclosed_flashcard_lines[i : i + 3]
+            card_model = "Basic (and reversed card)" if tags_group[0] == "#flashcard-reverse" else "Basic"
+
+            question, answer, anki_id = self.parse_enclosed_flashcard(lines_group, tags_group)
+
+            anki_id = self.import_flashcard(self.deck_name, question, answer, card_model, anki_id)
+
+            if anki_id:
+                self.file_lines[lines_group[2]] += f" ^anki-{anki_id}"
+
+            # It's better to write the file after each flashcard is added just in case an issue happens half way through
+            self.write_file()
+
+    @cached_property
+    def enclosed_flashcard_tags(self) -> list[str]:
+        """Returns the flashcard tags.
+
+        This function calls the _parse_flashcards method and returns the first element of the result.
+
+        Returns:
+            List[str]: The flashcard tags.
+        """
+        return self.get_enclosed_flashcard_tags_and_lines[0]
+
+    @cached_property
+    def enclosed_flashcard_lines(self) -> list[int]:
+        """Returns the flashcard lines.
+
+        This function calls the _parse_flashcards method and returns the second element of the result.
+
+        Returns:
+            List[int]: The flashcard lines.
+        """
+        return self.get_enclosed_flashcard_tags_and_lines[1]
+
+    def parse_enclosed_flashcard(
         self,
         lines_group: list[int],
         tags_group: list[str],
@@ -333,81 +471,35 @@ class MDFile(AnkiConnector):
         answer = self.markdown_to_anki(answer)
         return question, answer, anki_id
 
-    def store_media_file(self, file_name: str, data: bytes) -> None:
-        """Stores a media file.
 
-        This function constructs a request with the action "storeMediaFile", the file name, and the base64 encoded data,
-        and sends the request using the invoke method.
+class RemnoteFlashcard(SharedFlashcard):
+    def import_remnote_flashcards(self) -> None:
+        for line_number, line_content in enumerate(self.file_lines):
+            if "::" in line_content or ":::" in line_content:
+                if ":::" in line_content:
+                    question, answer = line_content.split(":::")
+                    card_model = "Basic"
+                else:
+                    question, answer = line_content.split("::")
+                    card_model = "Basic (and reversed card)"
+                answer, anki_id = self.split_anki_id(answer)
 
-        Args:
-            file_name (str): The name of the file to be stored.
-            data (bytes): The data of the file to be stored.
+                anki_id = self.import_flashcard(self.deck_name, question, answer, card_model, anki_id)
 
-        Returns:
-            None
-        """
-        params = {
-            "filename": file_name,
-            "data": base64.b64encode(data).decode("utf-8"),
-        }
-        self.invoke("storeMediaFile", params)
+                if anki_id:
+                    self.file_lines[line_number] += f" ^anki-{anki_id}"
+                # It's better to write the file after each flashcard is added just in case an issue happens half way through
+                self.write_file()
 
-    def add_flashcard(self, question: str, answer: str, card_model: str) -> int:
-        """Adds a flashcard.
+    @cached_property
+    def has_remnote_flashcards(self) -> bool:
+        return any("::" in line or ":::" in line for line in self.file_lines)
 
-        This function constructs a request with the action "addNote", the deck name, the model name "Basic",
-        and the question and answer, and sends the request using the invoke method. It returns the result of the
-        request.
 
-        Args:
-            question (str): The question of the flashcard.
-            answer (str): The answer of the flashcard.
-            card_model (str): The model name of the flashcard.
+class MDFile(EnclosedFlashcard, RemnoteFlashcard):
+    """A class to import flashcards from a markdown file to Anki."""
 
-        Returns:
-            int: The result of the request.
-        """
-        params = {
-            "note": {
-                "deckName": self.deck_name,
-                "modelName": card_model,
-                "fields": {
-                    "Front": question,
-                    "Back": answer,
-                },
-                "tags": ["mankey"],
-            },
-        }
-        return self.invoke("addNote", params)
-
-    def update_flashcard(self, question: str, answer: str, card_model: str, anki_id: int) -> int:
-        """Updates a flashcard.
-
-        This function constructs a request with the action "updateNoteFields", the Anki ID, and the question and answer,
-        and sends the request using the invoke method. It returns the result of the request.
-
-        Args:
-            question (str): The new question of the flashcard.
-            answer (str): The new answer of the flashcard.
-            card_model (str): The model name of the flashcard.
-            anki_id (int): The Anki ID of the flashcard to be updated.
-
-        Returns:
-            int: The result of the request.
-        """
-        params = {
-            "note": {
-                "deckName": self.deck_name,
-                "id": anki_id,
-                "modelName": card_model,
-                "fields": {
-                    "Front": question,
-                    "Back": answer,
-                },
-                "tags": ["mankey"],
-            },
-        }
-        return self.invoke("updateNote", params)
+    IMAGE_REGEX = r"!\[.*?\]\((.*?)\)"
 
     def import_file(self) -> None:
         """Imports the flashcards from the file.
@@ -417,55 +509,12 @@ class MDFile(AnkiConnector):
         Returns:
             None
         """
-        if self.has_flashcards:
-            self.create_deck()
-            self.import_flashcards()
-
-    def write_file(self) -> None:
-        """Writes the file lines to the file.
-
-        This function opens the file in write mode with utf-8 encoding, joins the file lines with newline characters,
-        and writes the result to the file.
-
-        Returns:
-            None
-        """
-        with Path(self.file_name).open("w", encoding="utf-8") as file:
-            file.write("\n".join(self.file_lines))
-
-    def import_flashcards(self) -> None:
-        """Imports the flashcards.
-
-        This function iterates over the flashcard tags and lines in groups of 3. For each group,
-        it parses the flashcard, checks if the flashcard has an Anki ID, and if so, updates the flashcard,
-        otherwise, adds the flashcard. After each flashcard is processed, it writes the file.
-
-        Returns:
-            None
-        """
-        for i in range(0, len(self.flashcard_tags), 3):
-            tags_group = self.flashcard_tags[i : i + 3]
-            lines_group = self.flashcard_lines[i : i + 3]
-            card_model = "Basic (and reversed card)" if tags_group[0] == "#flashcard-reverse" else "Basic"
-
-            question, answer, anki_id = self.parse_flashcard(lines_group, tags_group)
-
-            if anki_id:
-                params = {"notes": [anki_id]}
-                result = self.invoke("notesInfo", params)
-                if result == [{}]:
-                    print(f"Note with id {anki_id} does not exist")
-                else:
-                    self.update_flashcard(question, answer, card_model, anki_id)
-            else:
-                returned_id = self.add_flashcard(question, answer, card_model)
-                if not returned_id:
-                    print("Error adding card")
-                else:
-                    self.file_lines[lines_group[2]] += f" ^anki-{returned_id}"
-
-            # It's better to write the file after each flashcard is added just in case an issue happens half way through
-            self.write_file()
+        if self.has_enclosed_flashcards:
+            self.create_deck(self.deck_name)
+            self.import_enclosed_flashcards()
+        if self.has_remnote_flashcards:
+            self.create_deck(self.deck_name)
+            self.import_remnote_flashcards()
 
     def anki_ids(self) -> list[int]:
         """Returns the Anki IDs of the flashcards.
@@ -477,13 +526,9 @@ class MDFile(AnkiConnector):
             List[int]: The Anki IDs of the flashcards.
         """
         anki_ids: list[int] = []
-        for i in range(0, len(self.flashcard_tags), 3):
-            tags_group = self.flashcard_tags[i : i + 3]
-            lines_group = self.flashcard_lines[i : i + 3]
-
-            _question, _answer, anki_id = self.parse_flashcard(lines_group, tags_group)
-            if anki_id:
-                anki_ids.append(anki_id)
+        for line in self.file_lines:
+            if match_data := re.search(r"\^anki-(\d{13})", line):
+                anki_ids.append(int(match_data.group(1)))
         return anki_ids
 
 
@@ -504,11 +549,11 @@ def main() -> None:
         anki_ids += md_object.anki_ids()
 
     if delete:
-        notes_to_delete = [item for item in AnkiConnector().manki_notes() if item not in anki_ids]
+        notes_to_delete = [item for item in AnkiConnector.manki_notes() if item not in anki_ids]
         print(f"Deleting {len(notes_to_delete)} notes")
         delete_confirmation = input("Are you sure you want to delete these notes? y/N")
         if delete_confirmation.lower() == "y":
-            AnkiConnector().delete_notes(notes_to_delete)
+            AnkiConnector.delete_notes(notes_to_delete)
 
 
 if __name__ == "__main__":
