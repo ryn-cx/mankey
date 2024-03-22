@@ -214,6 +214,90 @@ class AnkiConnector:
         else:
             return cls.add_flashcard(deck_name, question, answer, card_model)
 
+    @classmethod
+    def import_cloze_flashcard(cls, deck_name: str, question: str, anki_id: int | None) -> int | None:
+        """Imports a flashcard.
+
+        This function constructs a request with the action "addNote", the deck name, the model name "Basic",
+        and the question and answer, and sends the request using the invoke method. It returns the result of the
+        request.
+
+        Args:
+            question (str): The question of the flashcard.
+            answer (str): The answer of the flashcard.
+            card_model (str): The model name of the flashcard.
+
+        Returns:
+            None
+        """
+        if anki_id:
+            params = {"notes": [anki_id]}
+            result = cls.invoke("notesInfo", params)
+            if result == [{}]:
+                print(f"Note with id {anki_id} does not exist")
+            else:
+                cls.update_cloze_flashcard(deck_name, question, anki_id)
+        else:
+            return cls.add_cloze_flashcard(deck_name, question)
+
+    @classmethod
+    def add_cloze_flashcard(cls, deck_name: str, question: str) -> int:
+        """Adds a flashcard.
+
+        This function constructs a request with the action "addNote", the deck name, the model name "Basic",
+        and the question and answer, and sends the request using the invoke method. It returns the result of the
+        request.
+
+        Args:
+            deck_name (str): The name of the deck to add the flashcard to.
+            question (str): The question of the flashcard.
+            answer (str): The answer of the flashcard.
+            card_model (str): The model name of the flashcard.
+
+        Returns:
+            int: The result of the request.
+        """
+        params = {
+            "note": {
+                "deckName": deck_name,
+                "modelName": "Cloze",
+                "fields": {
+                    "Text": "What does a {{c1::cloze}} look like in Obsidian?",
+                },
+                "tags": ["mankey"],
+            },
+        }
+        return cls.invoke("addNote", params)
+
+    @classmethod
+    def update_cloze_flashcard(cls, deck_name: str, question: str, anki_id: int) -> int:
+        """Updates a flashcard.
+
+        This function constructs a request with the action "updateNoteFields", the Anki ID, and the question and answer,
+        and sends the request using the invoke method. It returns the result of the request.
+
+        Args:
+            question (str): The new question of the flashcard.
+            answer (str): The new answer of the flashcard.
+            card_model (str): The model name of the flashcard.
+            anki_id (int): The Anki ID of the flashcard to be updated.
+
+        Returns:
+            int: The result of the request.
+        """
+        params = {
+            "note": {
+                "deckName": deck_name,
+                "id": anki_id,
+                "modelName": "Cloze",
+                "fields": {
+                    "Text": question,
+                },
+                "tags": ["mankey"],
+            },
+        }
+        return cls.invoke("updateNote", params)
+
 
 class SharedFlashcard(AnkiConnector):
     def __init__(self, input_dir: str, file_name: str) -> None:
@@ -383,7 +467,7 @@ class EnclosedFlashcard(SharedFlashcard):
         flashcard_lines: list[int] = []
         for line_number, line in enumerate(self.file_lines):
             for word in line.split():
-                if word.startswith("#flashcard-"):
+                if word.startswith(("#flashcard-regular", "#flashcard-reverse", "#flashcard-middle", "#flashcard-end")):
                     flashcard_tags.append(word)
                     flashcard_lines.append(line_number)
         return flashcard_tags, flashcard_lines
@@ -478,10 +562,10 @@ class RemnoteFlashcard(SharedFlashcard):
             if "::" in line_content or ":::" in line_content:
                 if ":::" in line_content:
                     question, answer = line_content.split(":::")
-                    card_model = "Basic"
+                    card_model = "Basic (and reversed card)"
                 else:
                     question, answer = line_content.split("::")
-                    card_model = "Basic (and reversed card)"
+                    card_model = "Basic"
                 answer, anki_id = self.split_anki_id(answer)
 
                 anki_id = self.import_flashcard(self.deck_name, question, answer, card_model, anki_id)
@@ -496,7 +580,57 @@ class RemnoteFlashcard(SharedFlashcard):
         return any("::" in line or ":::" in line for line in self.file_lines)
 
 
-class MDFile(EnclosedFlashcard, RemnoteFlashcard):
+class ClozeFlashcard(SharedFlashcard):
+    def clozify(self, index: int) -> str:
+        pattern = ["{", "{c1::", "}", "}"]
+        pattern_length = len(pattern)
+        # Calculate the position within the repeating pattern
+        position_in_pattern = index % pattern_length
+        # Return the character at the calculated position
+        return pattern[position_in_pattern]
+
+    def import_cloze_flashcards(self) -> None:
+        output = self.file_lines.copy()
+        for line_number, line_content in enumerate(self.file_lines):
+            if "#flashcard-cloze" in line_content:
+                asterisk_number = 0
+                for character_number, character in enumerate(line_content):
+                    if character == "*":
+                        output[line_number] = output[line_number].replace("*", self.clozify(asterisk_number), 1)
+                        asterisk_number += 1
+
+                question = output[line_number]
+                question, anki_id = self.split_anki_id(question)
+                print(question)
+
+                anki_id = self.import_cloze_flashcard(self.deck_name, question, anki_id)
+
+                if anki_id:
+                    self.file_lines[line_number] += f" ^anki-{anki_id}"
+                # It's better to write the file after each flashcard is added just in case an issue happens half way through
+                self.write_file()
+            # if "::" in line_content or ":::" in line_content:
+            #     if ":::" in line_content:
+            #         question, answer = line_content.split(":::")
+            #         card_model = "Basic"
+            #     else:
+            #         question, answer = line_content.split("::")
+            #         card_model = "Basic (and reversed card)"
+            #     answer, anki_id = self.split_anki_id(answer)
+
+            #     anki_id = self.import_flashcard(self.deck_name, question, answer, card_model, anki_id)
+
+            #     if anki_id:
+            #         self.file_lines[line_number] += f" ^anki-{anki_id}"
+            #     # It's better to write the file after each flashcard is added just in case an issue happens half way through
+            #     self.write_file()
+
+    @cached_property
+    def has_cloze_flashcards(self) -> bool:
+        return any("#flashcard-cloze" in line for line in self.file_lines)
+
+
+class MDFile(EnclosedFlashcard, RemnoteFlashcard, ClozeFlashcard):
     """A class to import flashcards from a markdown file to Anki."""
 
     IMAGE_REGEX = r"!\[.*?\]\((.*?)\)"
@@ -515,6 +649,9 @@ class MDFile(EnclosedFlashcard, RemnoteFlashcard):
         if self.has_remnote_flashcards:
             self.create_deck(self.deck_name)
             self.import_remnote_flashcards()
+        if self.has_cloze_flashcards:
+            self.create_deck(self.deck_name)
+            self.import_cloze_flashcards()
 
     def anki_ids(self) -> list[int]:
         """Returns the Anki IDs of the flashcards.
