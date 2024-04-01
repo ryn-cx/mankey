@@ -262,7 +262,7 @@ class AnkiConnector:
                 "deckName": deck_name,
                 "modelName": "Cloze",
                 "fields": {
-                    "Text": "What does a {{c1::cloze}} look like in Obsidian?",
+                    "Text": question,
                 },
                 "tags": ["mankey"],
             },
@@ -581,27 +581,44 @@ class RemnoteFlashcard(SharedFlashcard):
 
 
 class ClozeFlashcard(SharedFlashcard):
+    # TODO: This is terrible and hardcoded to a max of 5 clozures
     def clozify(self, index: int) -> str:
-        pattern = ["{", "{c1::", "}", "}"]
-        pattern_length = len(pattern)
-        # Calculate the position within the repeating pattern
-        position_in_pattern = index % pattern_length
-        # Return the character at the calculated position
-        return pattern[position_in_pattern]
+        pattern = [
+            "{",
+            "{c1::",
+            "}",
+            "}",
+            "{",
+            "{c2::",
+            "}",
+            "}",
+            "{",
+            "{c3::",
+            "}",
+            "}",
+            "{",
+            "{c4::",
+            "}",
+            "}",
+            "{",
+            "{c5::",
+            "}",
+            "}",
+        ]
+        return pattern[index]
 
     def import_cloze_flashcards(self) -> None:
         output = self.file_lines.copy()
         for line_number, line_content in enumerate(self.file_lines):
-            if "#flashcard-cloze" in line_content:
+            if "**" in line_content:
                 asterisk_number = 0
-                for character_number, character in enumerate(line_content):
+                for character in line_content:
                     if character == "*":
                         output[line_number] = output[line_number].replace("*", self.clozify(asterisk_number), 1)
                         asterisk_number += 1
 
                 question = output[line_number]
                 question, anki_id = self.split_anki_id(question)
-                print(question)
 
                 anki_id = self.import_cloze_flashcard(self.deck_name, question, anki_id)
 
@@ -609,25 +626,10 @@ class ClozeFlashcard(SharedFlashcard):
                     self.file_lines[line_number] += f" ^anki-{anki_id}"
                 # It's better to write the file after each flashcard is added just in case an issue happens half way through
                 self.write_file()
-            # if "::" in line_content or ":::" in line_content:
-            #     if ":::" in line_content:
-            #         question, answer = line_content.split(":::")
-            #         card_model = "Basic"
-            #     else:
-            #         question, answer = line_content.split("::")
-            #         card_model = "Basic (and reversed card)"
-            #     answer, anki_id = self.split_anki_id(answer)
-
-            #     anki_id = self.import_flashcard(self.deck_name, question, answer, card_model, anki_id)
-
-            #     if anki_id:
-            #         self.file_lines[line_number] += f" ^anki-{anki_id}"
-            #     # It's better to write the file after each flashcard is added just in case an issue happens half way through
-            #     self.write_file()
 
     @cached_property
     def has_cloze_flashcards(self) -> bool:
-        return any("#flashcard-cloze" in line for line in self.file_lines)
+        return any("**" in line for line in self.file_lines)
 
 
 class MDFile(EnclosedFlashcard, RemnoteFlashcard, ClozeFlashcard):
