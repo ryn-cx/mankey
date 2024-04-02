@@ -204,8 +204,24 @@ class AnkiConnector:
         replacement = r"<anki-mathjax>\1</anki-mathjax>"
         latex_done = re.sub(pattern, replacement, string)
 
+        mermaid_identifier = "!!!THIS IS TEMPORARY PLACEHOLDER TEXT FOR MERMAID!!!"
+        mermaid_string = ""
+        if "```mermaid" in latex_done:
+            # Get text between ```mermaid and ``` and put it into a variable
+            regex_match = re.search(r"```mermaid(.*?)```", latex_done, re.DOTALL)
+            if regex_match:
+                mermaid_string = regex_match.group(1)
+            latex_done = latex_done.replace(f"```mermaid{mermaid_string}```", mermaid_identifier)
+
+        markdown_text = markdown(latex_done, extensions=["tables"])
+
+        if mermaid_string:
+            # Replace the placeholder text with the mermaid string
+            fixed_mermaid = '<div class="mermaid">' + mermaid_string + "</div>"
+            markdown_text = markdown_text.replace(mermaid_identifier, fixed_mermaid)
+
         # This does some general markdown conversion, most importantly it converts tables
-        return markdown(latex_done, extensions=["tables"])
+        return markdown_text
 
     @classmethod
     def import_flashcard(
