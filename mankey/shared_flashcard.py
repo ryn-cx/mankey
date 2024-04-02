@@ -30,7 +30,7 @@ class SharedFlashcard(AnkiConnector):
         Returns:
             str: The deck name.
         """
-        return self.file_name.removeprefix(f"{self.input_dir}/").removesuffix(".md").replace("/", "::")
+        return self.file_name.removesuffix(".md").replace("/", "::")
 
     @cached_property
     def file_lines(self) -> list[str]:
