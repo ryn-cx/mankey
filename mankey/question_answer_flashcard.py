@@ -40,16 +40,8 @@ class QuestionAnswerFlashcard(SharedFlashcard):
             elif answer_mode and valid_depth:
                 answer += "\n" + line_content
 
-            # TODO: Or end of file
-            print("---------------")
-            print(line_content)
-            print(answer_mode)
-            print(valid_depth)
             if (answer_mode and not valid_depth) or line_number == number_of_lines - 1:
                 answer, anki_id = self.split_anki_id(answer)
-                print(question)
-                print(answer)
-                input("DOING IT")
                 anki_id = self.import_flashcard(self.deck_name, question, answer, "Basic", anki_id)
                 if anki_id:
                     self.file_lines[line_number] += f" ^anki-{anki_id}"
