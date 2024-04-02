@@ -45,28 +45,6 @@ class SharedFlashcard(AnkiConnector):
         with Path(self.file_name).open("r", encoding="utf-8") as file:
             return file.read().splitlines()
 
-    @classmethod
-    def markdown_to_anki(cls, string: str) -> str:
-        """Converts a markdown string to Anki's format.
-
-        This function takes a markdown string as input, converts LaTeX to Anki's MathJax format,
-        and then converts the string from markdown to HTML using the markdown library.
-        It returns the converted string.
-
-        Args:
-            string (str): The markdown string to be converted.
-
-        Returns:
-            str: The converted string in Anki's format.
-        """
-        # Convert the LaTeX to Anki's MathJax format
-        pattern = re.compile(r"\$([^\s\n].*?[^\s\n])\$", re.MULTILINE)
-        replacement = r"<anki-mathjax>\1</anki-mathjax>"
-        latex_done = re.sub(pattern, replacement, string)
-
-        # This does some general markdown conversion, most importantly it converts tables
-        return markdown.markdown(latex_done, extensions=["tables"])
-
     def import_images(self, line_content: str) -> None:
         """Searches for images in the line content and imports them.
 

@@ -44,7 +44,7 @@ class QuestionAnswerFlashcard(SharedFlashcard):
                 answer, anki_id = self.split_anki_id(answer)
                 anki_id = self.import_flashcard(self.deck_name, question, answer, "Basic", anki_id)
                 if anki_id:
-                    self.file_lines[line_number] += f" ^anki-{anki_id}"
+                    self.file_lines[line_number - 1] += f" ^anki-{anki_id}"
 
                 # It's better to write the file after each flashcard is added just in case an issue happens half way through
                 self.write_file()

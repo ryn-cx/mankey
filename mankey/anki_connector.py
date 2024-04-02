@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import urllib.request
 from typing import Any
+
+from markdown import markdown
 
 
 class AnkiConnector:
@@ -183,6 +186,28 @@ class AnkiConnector:
         return cls.invoke("updateNote", params)
 
     @classmethod
+    def markdown_to_anki(cls, string: str) -> str:
+        """Converts a markdown string to Anki's format.
+
+        This function takes a markdown string as input, converts LaTeX to Anki's MathJax format,
+        and then converts the string from markdown to HTML using the markdown library.
+        It returns the converted string.
+
+        Args:
+            string (str): The markdown string to be converted.
+
+        Returns:
+            str: The converted string in Anki's format.
+        """
+        # Convert the LaTeX to Anki's MathJax format
+        pattern = re.compile(r"\$([^\s\n].*?[^\s\n])\$", re.MULTILINE)
+        replacement = r"<anki-mathjax>\1</anki-mathjax>"
+        latex_done = re.sub(pattern, replacement, string)
+
+        # This does some general markdown conversion, most importantly it converts tables
+        return markdown(latex_done, extensions=["tables"])
+
+    @classmethod
     def import_flashcard(
         cls, deck_name: str, question: str, answer: str, card_model: str, anki_id: int | None
     ) -> int | None:
@@ -200,6 +225,8 @@ class AnkiConnector:
         Returns:
             None
         """
+        question = cls.markdown_to_anki(question)
+        answer = cls.markdown_to_anki(answer)
         if anki_id:
             params = {"notes": [anki_id]}
             result = cls.invoke("notesInfo", params)

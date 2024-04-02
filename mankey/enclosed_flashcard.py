@@ -133,6 +133,4 @@ class EnclosedFlashcard(SharedFlashcard):
 
         answer, anki_id = self.split_anki_id(answer)
 
-        question = self.markdown_to_anki(question)
-        answer = self.markdown_to_anki(answer)
         return question, answer, anki_id
