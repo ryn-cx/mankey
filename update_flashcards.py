@@ -9,11 +9,12 @@ from pathlib import Path
 from mankey.anki_connector import AnkiConnector
 from mankey.cloze_flashcard import ClozeFlashcard
 from mankey.enclosed_flashcard import EnclosedFlashcard
+from mankey.question_answer_alt_flashcard import QuestionAnswerAltFlashcard
 from mankey.question_answer_flashcard import QuestionAnswerFlashcard
 from mankey.remnote_flashcard import RemnoteFlashcard
 
 
-class MDFile(EnclosedFlashcard, RemnoteFlashcard, ClozeFlashcard, QuestionAnswerFlashcard):
+class MDFile(EnclosedFlashcard, RemnoteFlashcard, ClozeFlashcard, QuestionAnswerFlashcard, QuestionAnswerAltFlashcard):
     """A class to import flashcards from a markdown file to Anki."""
 
     IMAGE_REGEX = r"!\[.*?\]\((.*?)\)"
@@ -26,18 +27,35 @@ class MDFile(EnclosedFlashcard, RemnoteFlashcard, ClozeFlashcard, QuestionAnswer
         Returns:
             None
         """
+
+        # for line_number, line in enumerate(self.file_lines):
+        #     # These should not exist, they do, oops.
+        #     if "^anki-" in line:
+        #         print(line)
+        #         line = line.replace("THISISSHITHERETOFUCK", "")
+        #         split_up = line.split("^anki-")
+        #         split_up[0] = split_up[0].strip()
+        #         # If split_up[0] ends with 10 numbers remove it
+        #         self.file_lines[line_number] = f"{split_up[0].strip()} ^anki-{split_up[-1].strip()}"
+        #         print(self.file_lines[line_number])
+        #         # input("THIS FUCKER")
+        #         self.write_file()
+
         if self.has_enclosed_flashcards:
             self.create_deck(self.deck_name)
             self.import_enclosed_flashcards()
-        if self.has_remnote_flashcards:
-            self.create_deck(self.deck_name)
-            self.import_remnote_flashcards()
+        # if self.has_remnote_flashcards:
+        #     self.create_deck(self.deck_name)
+        #     self.import_remnote_flashcards()
         if self.has_cloze_flashcards:
             self.create_deck(self.deck_name)
             self.import_cloze_flashcards()
         if self.has_question_answer_flashcards:
             self.create_deck(self.deck_name)
             self.import_question_answer_flashcards()
+        if self.has_question_answer_alt_flashcards:
+            self.create_deck(self.deck_name)
+            self.import_question_answer_alt_flashcards()
 
     def anki_ids(self) -> list[int]:
         """Returns the Anki IDs of the flashcards.
@@ -67,9 +85,10 @@ def main() -> None:
     anki_ids: list[int] = []
     # Import everything in one loops
     for md_file in Path(input_dir).glob("**/*.md"):
-        md_object = MDFile(input_dir, str(md_file))
-        md_object.import_file()
-        anki_ids += md_object.anki_ids()
+        if not md_file.name.startswith("_"):
+            md_object = MDFile(input_dir, str(md_file))
+            md_object.import_file()
+            anki_ids += md_object.anki_ids()
 
     if delete:
         notes_to_delete = [item for item in AnkiConnector.manki_notes() if item not in anki_ids]

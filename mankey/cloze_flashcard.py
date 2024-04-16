@@ -29,6 +29,15 @@ class ClozeFlashcard(SharedFlashcard):
             "{c5::",
             "}",
             "}",
+            "{c6::",
+            "}",
+            "}",
+            "{c7::",
+            "}",
+            "}",
+            "{c8::",
+            "}",
+            "}",
         ]
         return pattern[index]
 
@@ -38,16 +47,21 @@ class ClozeFlashcard(SharedFlashcard):
             if "**" in line_content:
                 asterisk_number = 0
                 for character in line_content:
-                    if character == "*":
+                    if character == "*" and line_content[line_content.index(character) - 1] != "\\":
                         output[line_number] = output[line_number].replace("*", self.clozify(asterisk_number), 1)
                         asterisk_number += 1
 
-                question = output[line_number]
+                question = output[line_number].strip()
+                # If - or # is the first character remove it
+                if question.startswith("-") or question.startswith("#"):
+                    question = question[1:].strip()
+
                 question, anki_id = self.split_anki_id(question)
 
                 anki_id = self.import_cloze_flashcard(self.deck_name, question, anki_id)
 
                 if anki_id:
+                    output[line_number] = output[line_number].split("^anki-")[0].strip()
                     self.file_lines[line_number] += f" ^anki-{anki_id}"
                 # It's better to write the file after each flashcard is added just in case an issue happens half way through
                 self.write_file()

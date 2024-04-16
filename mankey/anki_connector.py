@@ -59,7 +59,7 @@ class AnkiConnector:
             error_message = response["error"]
         else:
             return response["result"]
-
+        print(params)
         raise ValueError(error_message)
 
     @classmethod
@@ -150,6 +150,7 @@ class AnkiConnector:
                     "Front": question,
                     "Back": answer,
                 },
+                "options": {"allowDuplicate": True},
                 "tags": ["mankey"],
             },
         }
@@ -186,6 +187,27 @@ class AnkiConnector:
         return cls.invoke("updateNote", params)
 
     @classmethod
+    def save_mathjax(cls, string: str) -> tuple[str, list[str]]:
+        # Find all matches
+        matches = re.findall(r"(\$.*?\$)", string, re.MULTILINE)
+
+        mathjax_string = "MATHJAX_TEMPORARY_PLACEHOLDER"
+        mathjax_holder: list[str] = []
+        # Replace each match with a temporary string
+        for match in matches:
+            string = string.replace(match, mathjax_string)
+            mathjax_holder.append(match)
+        return string, mathjax_holder
+
+    @classmethod
+    def add_cleaned_mathjax(cls, string: str, mathjax_holder: list[str]) -> str:
+        for original in mathjax_holder:
+            string = string.replace("MATHJAX_TEMPORARY_PLACEHOLDER", original, 1)
+        pattern = re.compile(r"\$(.*?)\$", re.MULTILINE)
+        replacement = r"<anki-mathjax>\1</anki-mathjax>"
+        return re.sub(pattern, replacement, string)
+
+    @classmethod
     def markdown_to_anki(cls, string: str) -> str:
         """Converts a markdown string to Anki's format.
 
@@ -199,21 +221,20 @@ class AnkiConnector:
         Returns:
             str: The converted string in Anki's format.
         """
-        # Convert the LaTeX to Anki's MathJax format
-        pattern = re.compile(r"\$([^\s\n].*?[^\s\n])\$", re.MULTILINE)
-        replacement = r"<anki-mathjax>\1</anki-mathjax>"
-        latex_done = re.sub(pattern, replacement, string)
+        string, saved_mathjax = cls.save_mathjax(string)
 
+        # TODO: Only supports a single mermaid diagram per note
         mermaid_identifier = "!!!THIS IS TEMPORARY PLACEHOLDER TEXT FOR MERMAID!!!"
         mermaid_string = ""
-        if "```mermaid" in latex_done:
+        if "```mermaid" in string:
             # Get text between ```mermaid and ``` and put it into a variable
-            regex_match = re.search(r"```mermaid(.*?)```", latex_done, re.DOTALL)
+            regex_match = re.search(r"```mermaid(.*?)```", string, re.DOTALL)
             if regex_match:
                 mermaid_string = regex_match.group(1)
-            latex_done = latex_done.replace(f"```mermaid{mermaid_string}```", mermaid_identifier)
+            string = string.replace(f"```mermaid{mermaid_string}```", mermaid_identifier)
 
-        markdown_text = markdown(latex_done, extensions=["tables"])
+        markdown_text = markdown(string, extensions=["tables"])
+        markdown_text = cls.add_cleaned_mathjax(markdown_text, saved_mathjax)
 
         if mermaid_string:
             # Replace the placeholder text with the mermaid string
@@ -248,6 +269,7 @@ class AnkiConnector:
             result = cls.invoke("notesInfo", params)
             if result == [{}]:
                 print(f"Note with id {anki_id} does not exist")
+                return cls.add_flashcard(deck_name, question, answer, card_model)
             else:
                 cls.update_flashcard(deck_name, question, answer, card_model, anki_id)
         else:
@@ -269,11 +291,13 @@ class AnkiConnector:
         Returns:
             None
         """
+        question = cls.markdown_to_anki(question)
         if anki_id:
             params = {"notes": [anki_id]}
             result = cls.invoke("notesInfo", params)
             if result == [{}]:
                 print(f"Note with id {anki_id} does not exist")
+                return cls.add_cloze_flashcard(deck_name, question)
             else:
                 cls.update_cloze_flashcard(deck_name, question, anki_id)
         else:
@@ -304,6 +328,7 @@ class AnkiConnector:
                     "Text": question,
                 },
                 "tags": ["mankey"],
+                "options": {"allowDuplicate": True},
             },
         }
         return cls.invoke("addNote", params)

@@ -16,42 +16,63 @@ class QuestionAnswerFlashcard(SharedFlashcard):
         Returns:
             Tuple[List[str], List[int]]: The flashcard tags and their line numbers.
         """
-        question = ""
-        answer = ""
-        question_mode = False
-        answer_mode = False
+        self.question = ""
+        self.answer = ""
+        self.question_mode = False
+        self.answer_mode = False
         depth = 0
         number_of_lines = len(self.file_lines)
         for line_number, line_content in enumerate(self.file_lines):
             cleaned_line_content = line_content.replace("#", "").strip()
-            if cleaned_line_content == "Question":
-                question_mode = True
-                answer_mode = False
+            # Check if the current line is part of the note
+            part_of_note = self.valid_depth(line_content, depth)
+
+            if cleaned_line_content.startswith("Question:"):
+                mode = "Question"
+                self.question_mode = True
+                self.answer_mode = False
                 depth = line_content.count("#")
                 continue
-            elif cleaned_line_content == "Answer":
-                question_mode = False
-                answer_mode = True
+
+            if cleaned_line_content == "Question" or cleaned_line_content.startswith("Question:"):
+                self.export_card(self.question, self.answer, number_of_lines, line_number, part_of_note)
+
+                self.question_mode = True
+                self.answer_mode = False
+                depth = line_content.count("#")
+                continue
+            elif cleaned_line_content == "Answer" or cleaned_line_content.startswith("Answer:"):
+                self.question_mode = False
+                self.answer_mode = True
                 continue
 
-            valid_depth = self.valid_depth(line_content, depth)
-            if question_mode:
-                question += "\n" + line_content
-            elif answer_mode and valid_depth:
-                answer += "\n" + line_content
+            if self.question_mode:
+                self.question += "\n" + line_content
+            elif self.answer_mode and part_of_note:
+                self.answer += "\n" + line_content
 
-            if (answer_mode and not valid_depth) or line_number == number_of_lines - 1:
-                answer, anki_id = self.split_anki_id(answer)
-                anki_id = self.import_flashcard(self.deck_name, question, answer, "Basic", anki_id)
-                if anki_id:
-                    self.file_lines[line_number - 1] += f" ^anki-{anki_id}"
+            self.export_card(self.question, self.answer, number_of_lines, line_number, part_of_note)
 
-                # It's better to write the file after each flashcard is added just in case an issue happens half way through
-                self.write_file()
-                question_mode = False
-                answer_mode = False
-                question = ""
-                answer = ""
+    def export_card(self, question: str, answer: str, number_of_lines: int, line_number: int, part_of_note: bool):
+        if self.answer_mode and (not part_of_note or line_number == number_of_lines - 1):
+            offset = 0 if line_number == number_of_lines - 1 else 1
+
+            answer, anki_id = self.split_anki_id(answer)
+            anki_id = self.import_flashcard(self.deck_name, question, answer, "Basic", anki_id)
+            if anki_id:
+                self.file_lines[line_number - offset] = self.file_lines[line_number - offset].split("^anki-")[0].strip()
+                self.file_lines[line_number - offset] += f" ^anki-{anki_id}"
+
+            # Cleans up old messy stuff that shouldn't exist after this is ran once
+            split = self.file_lines[line_number - offset].split("^anki-")
+            self.file_lines[line_number - offset] = split[0].strip() + "^anki-" + split[-1].strip()
+
+            # It's better to write the file after each flashcard is added just in case an issue happens half way through
+            self.write_file()
+            self.question_mode = False
+            self.answer_mode = False
+            self.question = ""
+            self.answer = ""
 
     def valid_depth(self, line: str, number_to_check: int):
         """Checks if a line starts with at most three '#' symbols.
