@@ -22,26 +22,23 @@ class QuestionAnswerFlashcard(SharedFlashcard):
         self.answer_mode = False
         depth = 0
         number_of_lines = len(self.file_lines)
+        code_block = False
         for line_number, line_content in enumerate(self.file_lines):
             cleaned_line_content = line_content.replace("#", "").strip()
             # Check if the current line is part of the note
-            part_of_note = self.valid_depth(line_content, depth)
+            if not code_block:
+                part_of_note = self.valid_depth(line_content, depth)
 
-            if cleaned_line_content.startswith("Question:"):
-                mode = "Question"
+            if "```" in line_content:
+                code_block = not code_block
+
+            if cleaned_line_content.startswith("Question"):
+                self.export_card_if_complete(self.question, self.answer, number_of_lines, line_number, part_of_note)
                 self.question_mode = True
                 self.answer_mode = False
                 depth = line_content.count("#")
                 continue
-
-            if cleaned_line_content == "Question" or cleaned_line_content.startswith("Question:"):
-                self.export_card(self.question, self.answer, number_of_lines, line_number, part_of_note)
-
-                self.question_mode = True
-                self.answer_mode = False
-                depth = line_content.count("#")
-                continue
-            elif cleaned_line_content == "Answer" or cleaned_line_content.startswith("Answer:"):
+            elif cleaned_line_content.startswith("Answer"):
                 self.question_mode = False
                 self.answer_mode = True
                 continue
@@ -51,9 +48,11 @@ class QuestionAnswerFlashcard(SharedFlashcard):
             elif self.answer_mode and part_of_note:
                 self.answer += "\n" + line_content
 
-            self.export_card(self.question, self.answer, number_of_lines, line_number, part_of_note)
+            self.export_card_if_complete(self.question, self.answer, number_of_lines, line_number, part_of_note)
 
-    def export_card(self, question: str, answer: str, number_of_lines: int, line_number: int, part_of_note: bool):
+    def export_card_if_complete(
+        self, question: str, answer: str, number_of_lines: int, line_number: int, part_of_note: bool
+    ):
         if self.answer_mode and (not part_of_note or line_number == number_of_lines - 1):
             offset = 0 if line_number == number_of_lines - 1 else 1
 
@@ -65,7 +64,7 @@ class QuestionAnswerFlashcard(SharedFlashcard):
 
             # Cleans up old messy stuff that shouldn't exist after this is ran once
             split = self.file_lines[line_number - offset].split("^anki-")
-            self.file_lines[line_number - offset] = split[0].strip() + "^anki-" + split[-1].strip()
+            self.file_lines[line_number - offset] = split[0].strip() + " ^anki-" + split[-1].strip()
 
             # It's better to write the file after each flashcard is added just in case an issue happens half way through
             self.write_file()
@@ -83,6 +82,8 @@ class QuestionAnswerFlashcard(SharedFlashcard):
         Returns:
             bool: True if the line starts with at most three '#' symbols, False otherwise.
         """
+        if "```" in line:
+            print("PAUSE")
         count = 0
         for char in line:
             if char == "#":
