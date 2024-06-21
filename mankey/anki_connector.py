@@ -6,39 +6,43 @@ import base64
 import json
 import re
 import urllib.request
+from functools import cached_property
 from typing import Any
 
 from markdown import markdown
 
 
+class DuplicateNoteError(Exception):
+    pass
+
+
 class AnkiConnector:
+    def __init__(self):
+        self.deck_names = self.invoke("deckNames", {})
+        self.media_files = self.invoke("getMediaFilesNames", {})
+
     """Interface for interacting with Anki."""
 
     IMAGE_REGEX = r"!\[.*?\]\((.*?)\)"
 
-    @classmethod
-    def request(cls, action: str, **params: Any) -> dict[str, Any]:
+    def request(self, action: str, **params: Any) -> dict[str, Any]:
         """Constructs a request dictionary with the given action, parameters, and version.
 
         Args:
-            action (str): The action to be included in the request.
-            params (Any): Additional keyword arguments to be included in the request parameters.
+            action: The action to be included in the request.
+            params: Additional keyword arguments to be included in the request parameters.
 
         Returns:
-            Dict[str, Any]: The constructed request dictionary.
+            The constructed request dictionary.
         """
         return {"action": action, "params": params, "version": 6}
 
-    @classmethod
-    def invoke(cls, action: str, params: Any) -> Any:
+    def invoke(self, action: str, params: Any) -> Any:
         """Sends a request and returns the result.
 
-        This function constructs a request with the given action and parameters, sends the request,
-        checks the response, and returns the result. If the response is not valid, it raises a ValueError.
-
         Args:
-            action (str): The action to be included in the request.
-            params (Any): Additional arguments to be included in the request parameters.
+            action: The action to be included in the request.
+            params: Additional arguments to be included in the request parameters.
 
         Returns:
             Any: The result from the response.
@@ -47,7 +51,7 @@ class AnkiConnector:
             ValueError: If the response is not valid.
             URLError: If the request fails.
         """
-        request_json = json.dumps(cls.request(action, **params)).encode("utf-8")
+        request_json = json.dumps(self.request(action, **params)).encode("utf-8")
         response = json.load(urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:8765", request_json)))
         if len(response) != 2:
             error_message = "response has an unexpected number of fields"
@@ -59,88 +63,76 @@ class AnkiConnector:
             error_message = response["error"]
         else:
             return response["result"]
-        print(params)
+
+        # Special error cases
+        if error_message == "cannot create note because it is a duplicate":
+            raise DuplicateNoteError
+
+        # General error case
         raise ValueError(error_message)
 
-    @classmethod
-    def manki_notes(cls) -> list[int]:
+    def manki_notes(self) -> list[int]:
         """Fetches the notes tagged with 'mankey' from Anki.
 
         Returns:
-            list[int]: A list of note IDs.
+            A list of note IDs.
         """
         params = {"query": "tag:mankey"}
-        return cls.invoke("findNotes", params)
+        return self.invoke("findNotes", params)
 
-    @classmethod
-    def delete_notes(cls, notes: list[int]) -> None:
+    def delete_notes(self, notes: list[int]) -> None:
         """Deletes the specified notes from Anki.
 
         Args:
-            notes (list[int]): A list of note IDs to delete.
+            notes: A list of note IDs to delete.
         """
         params = {"notes": notes}
-        cls.invoke("deleteNotes", params)
+        self.invoke("deleteNotes", params)
 
-    @classmethod
-    def model_names(cls) -> list[str]:
+    def model_names(self) -> list[str]:
         """Fetches the model names from Anki.
 
         Returns:
-            list[str]: A list of model names.
+            A list of model names.
         """
-        return cls.invoke("modelNames", {})
+        return self.invoke("modelNames", {})
 
-    @classmethod
-    def create_deck(cls, deck_name: str) -> None:
-        """Creates a deck with the name stored in self.deck_name.
+    def create_deck(self, deck_name: str) -> None:
+        """Creates a deck  if it does not exist."""
+        if deck_name not in self.deck_names:
+            params = {"deck": deck_name}
+            self.deck_names.append(deck_name)
+            self.invoke("createDeck", params)
 
-        This function constructs a request with the action "createDeck" and the parameter "deck" set to self.deck_name,
-        and sends the request using the invoke method. If the deck already exists, nothing happens.
-
-        Returns:
-            None
-        """
-        # For simplicity just create the deck without checking if it exists, if it exists nothing happens
-        params = {"deck": deck_name}
-        cls.invoke("createDeck", params)
-
-    @classmethod
-    def store_media_file(cls, file_name: str, data: bytes) -> None:
+    def store_media_file(self, file_name: str, data: bytes) -> None:
         """Stores a media file.
 
-        This function constructs a request with the action "storeMediaFile", the file name, and the base64 encoded data,
-        and sends the request using the invoke method.
-
         Args:
-            file_name (str): The name of the file to be stored.
-            data (bytes): The data of the file to be stored.
+            file_name: The name of the file to be stored.
+            data: The data of the file to be stored.
 
         Returns:
             None
         """
-        params = {
-            "filename": file_name,
-            "data": base64.b64encode(data).decode("utf-8"),
-        }
-        cls.invoke("storeMediaFile", params)
+        if file_name not in self.media_files:
+            params = {
+                "filename": file_name,
+                "data": base64.b64encode(data).decode("utf-8"),
+            }
+            self.media_files.append(file_name)
+            self.invoke("storeMediaFile", params)
 
-    @classmethod
-    def add_flashcard(cls, deck_name: str, question: str, answer: str, card_model: str) -> int:
-        """Adds a flashcard.
-
-        This function constructs a request with the action "addNote", the deck name, the model name "Basic",
-        and the question and answer, and sends the request using the invoke method. It returns the result of the
-        request.
+    def add_flashcard(self, deck_name: str, question: str, answer: str, card_model: str) -> int:
+        """Adds a new flashcard.
 
         Args:
-            deck_name (str): The name of the deck to add the flashcard to.
-            question (str): The question of the flashcard.
-            answer (str): The answer of the flashcard.
-            card_model (str): The model name of the flashcard.
+            deck_name: The name of the deck to add the flashcard to.
+            question: The question of the flashcard.
+            answer: The answer of the flashcard.
+            card_model: The model name of the flashcard.
 
         Returns:
-            int: The result of the request.
+            The result of the request.
         """
         params = {
             "note": {
@@ -150,27 +142,23 @@ class AnkiConnector:
                     "Front": question,
                     "Back": answer,
                 },
-                "options": {"allowDuplicate": True},
+                # "options": {"allowDuplicate": True},
                 "tags": ["mankey"],
             },
         }
-        return cls.invoke("addNote", params)
+        return self.invoke("addNote", params)
 
-    @classmethod
-    def update_flashcard(cls, deck_name: str, question: str, answer: str, card_model: str, anki_id: int) -> int:
-        """Updates a flashcard.
-
-        This function constructs a request with the action "updateNoteFields", the Anki ID, and the question and answer,
-        and sends the request using the invoke method. It returns the result of the request.
+    def update_flashcard(self, deck_name: str, question: str, answer: str, card_model: str, anki_id: int) -> int:
+        """Updates an existing flashcard.
 
         Args:
-            question (str): The new question of the flashcard.
-            answer (str): The new answer of the flashcard.
-            card_model (str): The model name of the flashcard.
-            anki_id (int): The Anki ID of the flashcard to be updated.
+            question: The new question of the flashcard.
+            answer: The new answer of the flashcard.
+            card_model: The model name of the flashcard.
+            anki_id: The Anki ID of the flashcard to be updated.
 
         Returns:
-            int: The result of the request.
+            The result of the request.
         """
         params = {
             "note": {
@@ -184,180 +172,161 @@ class AnkiConnector:
                 "tags": ["mankey"],
             },
         }
-        return cls.invoke("updateNote", params)
+        return self.invoke("updateNote", params)
 
-    @classmethod
-    def save_mathjax(cls, string: str) -> tuple[str, list[str]]:
-        # Find all matches
-        matches = re.findall(r"(\$.*?\$)", string, re.MULTILINE)
-
-        mathjax_string = "MATHJAX_TEMPORARY_PLACEHOLDER"
-        mathjax_holder: list[str] = []
-        # Replace each match with a temporary string
-        for match in matches:
-            string = string.replace(match, mathjax_string)
-            mathjax_holder.append(match)
-        return string, mathjax_holder
-
-    @classmethod
-    def add_cleaned_mathjax(cls, string: str, mathjax_holder: list[str]) -> str:
-        for original in mathjax_holder:
-            string = string.replace("MATHJAX_TEMPORARY_PLACEHOLDER", original, 1)
-        pattern = re.compile(r"\$(.*?)\$", re.MULTILINE)
-        replacement = r"<anki-mathjax>\1</anki-mathjax>"
-        return re.sub(pattern, replacement, string)
-
-    @classmethod
-    def markdown_to_anki(cls, string: str) -> str:
-        """Converts a markdown string to Anki's format.
-
-        This function takes a markdown string as input, converts LaTeX to Anki's MathJax format,
-        and then converts the string from markdown to HTML using the markdown library.
-        It returns the converted string.
-
-        Args:
-            string (str): The markdown string to be converted.
-
-        Returns:
-            str: The converted string in Anki's format.
-        """
-        string, saved_mathjax = cls.save_mathjax(string)
-
-        # TODO: Only supports a single mermaid diagram per note
-        mermaid_identifier = "!!!THIS IS TEMPORARY PLACEHOLDER TEXT FOR MERMAID!!!"
-        mermaid_string = ""
-        if "```mermaid" in string:
-            # Get text between ```mermaid and ``` and put it into a variable
-            regex_match = re.search(r"```mermaid(.*?)```", string, re.DOTALL)
-            if regex_match:
-                mermaid_string = regex_match.group(1)
-            string = string.replace(f"```mermaid{mermaid_string}```", mermaid_identifier)
-
-        markdown_text = markdown(string, extensions=["tables"])
-        markdown_text = cls.add_cleaned_mathjax(markdown_text, saved_mathjax)
-
-        if mermaid_string:
-            # Replace the placeholder text with the mermaid string
-            fixed_mermaid = '<div class="mermaid">' + mermaid_string + "</div>"
-            markdown_text = markdown_text.replace(mermaid_identifier, fixed_mermaid)
-
-        # This does some general markdown conversion, most importantly it converts tables
-        return markdown_text
-
-    @classmethod
     def import_flashcard(
-        cls, deck_name: str, question: str, answer: str, card_model: str, anki_id: int | None
+        self, deck_name: str, question: str, answer: str, card_model: str, anki_id: int | None
     ) -> int | None:
         """Imports a flashcard.
 
-        This function constructs a request with the action "addNote", the deck name, the model name "Basic",
-        and the question and answer, and sends the request using the invoke method. It returns the result of the
-        request.
-
         Args:
-            question (str): The question of the flashcard.
-            answer (str): The answer of the flashcard.
-            card_model (str): The model name of the flashcard.
+            question: The question of the flashcard.
+            answer: The answer of the flashcard.
+            card_model: The model name of the flashcard.
 
         Returns:
             None
         """
-        question = cls.markdown_to_anki(question)
-        answer = cls.markdown_to_anki(answer)
+        question = self.markdown_to_anki(question)
+        answer = self.markdown_to_anki(answer)
         if anki_id:
             params = {"notes": [anki_id]}
-            result = cls.invoke("notesInfo", params)
+            result = self.invoke("notesInfo", params)
             if result == [{}]:
-                print(f"Note with id {anki_id} does not exist")
-                return cls.add_flashcard(deck_name, question, answer, card_model)
+                return self.add_flashcard(deck_name, question, answer, card_model)
             else:
-                cls.update_flashcard(deck_name, question, answer, card_model, anki_id)
+                self.update_flashcard(deck_name, question, answer, card_model, anki_id)
         else:
-            return cls.add_flashcard(deck_name, question, answer, card_model)
+            return self.add_flashcard(deck_name, question, answer, card_model)
 
-    @classmethod
-    def import_cloze_flashcard(cls, deck_name: str, question: str, anki_id: int | None) -> int | None:
-        """Imports a flashcard.
-
-        This function constructs a request with the action "addNote", the deck name, the model name "Basic",
-        and the question and answer, and sends the request using the invoke method. It returns the result of the
-        request.
-
-        Args:
-            question (str): The question of the flashcard.
-            answer (str): The answer of the flashcard.
-            card_model (str): The model name of the flashcard.
-
-        Returns:
-            None
-        """
-        question = cls.markdown_to_anki(question)
-        if anki_id:
-            params = {"notes": [anki_id]}
-            result = cls.invoke("notesInfo", params)
-            if result == [{}]:
-                print(f"Note with id {anki_id} does not exist")
-                return cls.add_cloze_flashcard(deck_name, question)
-            else:
-                cls.update_cloze_flashcard(deck_name, question, anki_id)
-        else:
-            return cls.add_cloze_flashcard(deck_name, question)
-
-    @classmethod
-    def add_cloze_flashcard(cls, deck_name: str, question: str) -> int:
-        """Adds a flashcard.
-
-        This function constructs a request with the action "addNote", the deck name, the model name "Basic",
-        and the question and answer, and sends the request using the invoke method. It returns the result of the
-        request.
-
-        Args:
-            deck_name (str): The name of the deck to add the flashcard to.
-            question (str): The question of the flashcard.
-            answer (str): The answer of the flashcard.
-            card_model (str): The model name of the flashcard.
-
-        Returns:
-            int: The result of the request.
-        """
-        params = {
+    def import_definition(self, deck_name: str, word: str, definition: str, anki_id: int | None) -> int | None:
+        params: dict[str, Any] = {
             "note": {
                 "deckName": deck_name,
-                "modelName": "Cloze",
+                "modelName": "Basic (and reversed card)",
                 "fields": {
-                    "Text": question,
-                },
-                "tags": ["mankey"],
-                "options": {"allowDuplicate": True},
-            },
-        }
-        return cls.invoke("addNote", params)
-
-    @classmethod
-    def update_cloze_flashcard(cls, deck_name: str, question: str, anki_id: int) -> int:
-        """Updates a flashcard.
-
-        This function constructs a request with the action "updateNoteFields", the Anki ID, and the question and answer,
-        and sends the request using the invoke method. It returns the result of the request.
-
-        Args:
-            question (str): The new question of the flashcard.
-            answer (str): The new answer of the flashcard.
-            card_model (str): The model name of the flashcard.
-            anki_id (int): The Anki ID of the flashcard to be updated.
-
-        Returns:
-            int: The result of the request.
-        """
-        params = {
-            "note": {
-                "deckName": deck_name,
-                "id": anki_id,
-                "modelName": "Cloze",
-                "fields": {
-                    "Text": question,
+                    "Front": word,
+                    "Back": definition,
                 },
                 "tags": ["mankey"],
             },
         }
-        return cls.invoke("updateNote", params)
+        if anki_id:
+            params["note"]["id"] = anki_id
+            self.invoke("updateNote", params)
+            return anki_id
+        try:
+            return self.invoke("addNote", params)
+        except DuplicateNoteError:
+            return self.find_definition(word)
+
+    def find_definition(self, word: str) -> int:
+        """Finds the Anki ID of a card based on the question.
+
+        Args:
+            definition: The definition of the card.
+
+        Returns:
+            The Anki ID of the card.
+        """
+        params = {"query": word}
+        matches = self.invoke("findNotes", params)
+        if len(matches) == 1:
+            return matches[0]
+
+        error_msg = f"Expected 1 match, got {len(matches)}"
+        raise ValueError(error_msg)
+
+    def import_question_answer(self, deck_name: str, question: str, answer: str, anki_id: int | None) -> int | None:
+        params: dict[str, Any] = {
+            "note": {
+                "deckName": deck_name,
+                "modelName": "Basic",
+                "fields": {
+                    "Front": question,
+                    "Back": answer,
+                },
+                "tags": ["mankey"],
+            },
+        }
+        if anki_id:
+            params["note"]["id"] = anki_id
+            self.invoke("updateNote", params)
+            return anki_id
+        try:
+            return self.invoke("addNote", params)
+        except DuplicateNoteError:
+            return self.find_question_answer(question)
+
+    def find_question_answer(self, question: str) -> int:
+        """Finds the Anki ID of a card based on the question.
+
+        Args:
+            definition: The definition of the card.
+
+        Returns:
+            The Anki ID of the card.
+        """
+        params = {"query": question}
+        print(question)
+        matches = self.invoke("findNotes", params)
+        if len(matches) == 1:
+            return matches[0]
+
+        error_msg = f"Expected 1 match, got {len(matches)}"
+        raise ValueError(error_msg)
+
+    def import_clozure(self, deck_name: str, clozure: str, anki_id: int | None) -> int | None:
+        params: dict[str, Any] = {
+            "note": {
+                "deckName": deck_name,
+                "modelName": "Cloze",
+                "fields": {
+                    "Text": clozure,
+                },
+                "tags": ["mankey"],
+            },
+        }
+        if anki_id:
+            params["note"]["id"] = anki_id
+            self.invoke("updateNote", params)
+            return anki_id
+        try:
+            return self.invoke("addNote", params)
+        except DuplicateNoteError:
+            return self.find_clozure(clozure)
+
+    def find_clozure(self, clozure: str) -> int:
+        """Finds the Anki ID of a card based on the question.
+
+        Args:
+            clozure: The clozure of the card.
+
+        Returns:
+            The Anki ID of the card.
+        """
+        # Convert closure back to a searchable string
+        clozure = re.sub(r"{{c\d::(.*?)}}", r"\1", clozure)
+
+        # Need to escape slashes
+        clozure = clozure.replace("\\", "\\\\")
+
+        params = {"query": clozure}
+        matches = self.invoke("findNotes", params)
+        if len(matches) == 1:
+            return matches[0]
+
+        error_msg = f"Expected 1 match, got {len(matches)}"
+        raise ValueError(error_msg)
+
+    def card_info(self, card_id: int) -> dict[str, Any]:
+        """Fetches the information of a card.
+
+        Args:
+            card_id: The ID of the card.
+
+        Returns:
+            The information of the card.
+        """
+        params = {"notes": [card_id]}
+        return self.invoke("notesInfo", params)
