@@ -11,7 +11,6 @@ from typing import Any
 
 import markdown
 import toml
-from markdown import markdown
 
 
 class DuplicateNoteError(Exception):
@@ -94,6 +93,8 @@ class AnkiConnector:
     def model_names(self) -> list[str]:
         """Fetches the model names from Anki.
 
+        Just used for debugging purposes
+
         Returns:
             A list of model names.
         """
@@ -123,83 +124,6 @@ class AnkiConnector:
             }
             self.media_files.append(file_name)
             self.invoke("storeMediaFile", params)
-
-    def add_flashcard(self, deck_name: str, question: str, answer: str, card_model: str) -> int:
-        """Adds a new flashcard.
-
-        Args:
-            deck_name: The name of the deck to add the flashcard to.
-            question: The question of the flashcard.
-            answer: The answer of the flashcard.
-            card_model: The model name of the flashcard.
-
-        Returns:
-            The result of the request.
-        """
-        params = {
-            "note": {
-                "deckName": deck_name,
-                "modelName": card_model,
-                "fields": {
-                    "Front": question,
-                    "Back": answer,
-                },
-                # "options": {"allowDuplicate": True},
-                "tags": ["mankey"],
-            },
-        }
-        return self.invoke("addNote", params)
-
-    def update_flashcard(self, deck_name: str, question: str, answer: str, card_model: str, anki_id: int) -> int:
-        """Updates an existing flashcard.
-
-        Args:
-            question: The new question of the flashcard.
-            answer: The new answer of the flashcard.
-            card_model: The model name of the flashcard.
-            anki_id: The Anki ID of the flashcard to be updated.
-
-        Returns:
-            The result of the request.
-        """
-        params = {
-            "note": {
-                "deckName": deck_name,
-                "id": anki_id,
-                "modelName": card_model,
-                "fields": {
-                    "Front": question,
-                    "Back": answer,
-                },
-                "tags": ["mankey"],
-            },
-        }
-        return self.invoke("updateNote", params)
-
-    def import_flashcard(
-        self, deck_name: str, question: str, answer: str, card_model: str, anki_id: int | None
-    ) -> int | None:
-        """Imports a flashcard.
-
-        Args:
-            question: The question of the flashcard.
-            answer: The answer of the flashcard.
-            card_model: The model name of the flashcard.
-
-        Returns:
-            None
-        """
-        question = self.markdown_to_anki(question)
-        answer = self.markdown_to_anki(answer)
-        if anki_id:
-            params = {"notes": [anki_id]}
-            result = self.invoke("notesInfo", params)
-            if result == [{}]:
-                return self.add_flashcard(deck_name, question, answer, card_model)
-            else:
-                self.update_flashcard(deck_name, question, answer, card_model, anki_id)
-        else:
-            return self.add_flashcard(deck_name, question, answer, card_model)
 
     def import_definition(self, deck_name: str, word: str, definition: str, anki_id: int | None) -> int | None:
         params: dict[str, Any] = {
