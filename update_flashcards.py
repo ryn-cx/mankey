@@ -140,6 +140,7 @@ class AnkiConnector:
         if anki_id:
             params["note"]["id"] = anki_id
             self.invoke("updateNote", params)
+            self.change_deck(anki_id, deck_name)
             return anki_id
         try:
             return self.invoke("addNote", params)
@@ -178,6 +179,7 @@ class AnkiConnector:
         if anki_id:
             params["note"]["id"] = anki_id
             self.invoke("updateNote", params)
+            self.change_deck(anki_id, deck_name)
             return anki_id
         try:
             return self.invoke("addNote", params)
@@ -202,6 +204,16 @@ class AnkiConnector:
         error_msg = f"Expected 1 match, got {len(matches)}"
         raise ValueError(error_msg)
 
+    def change_deck(self, note_id: int, deck_name: str) -> None:
+        """Changes the deck of a card.
+
+        Args:
+            note_id: The ID of the card.
+            deck_name: The name of the deck to move the card to.
+        """
+        params = {"cards": [note_id], "deck": deck_name}
+        self.invoke("changeDeck", params)
+
     def import_clozure(self, deck_name: str, clozure: str, anki_id: int | None) -> int | None:
         params: dict[str, Any] = {
             "note": {
@@ -216,6 +228,7 @@ class AnkiConnector:
         if anki_id:
             params["note"]["id"] = anki_id
             self.invoke("updateNote", params)
+            self.change_deck(anki_id, deck_name)
             return anki_id
         try:
             return self.invoke("addNote", params)
@@ -265,7 +278,7 @@ class BaseFlashcard:
 
     def deck_name(self) -> str:
         """Returns the name of the deck."""
-        return self.md_file.parent.name
+        return str(self.md_file.relative_to(MARKDOWN_PATH)).replace("/", "::").replace(".md", "")
 
     def get_anki_id_from_line(self, string: str) -> int | None:
         """Get the Anki ID from a string that is a single line."""
@@ -291,7 +304,7 @@ class BaseFlashcard:
 
     def format_math(self, string: str) -> str:
         """Formats mathjax in a string."""
-        return re.sub(r"\$(\S(?:.*?\S)?)\$", r"<anki-mathjax>\1</anki-mathjax>", string)
+        return re.sub(r"\$(\S[^$]*?\S?)\$", r"<anki-mathjax>\1</anki-mathjax>", string)
 
     def format_img(self, string: str) -> str:
         """Formats images in a string."""
@@ -653,7 +666,7 @@ if not CONFIG_FILE.exists():
     error_msg = "The config file does not exist."
     raise FileNotFoundError(error_msg)
 LOADED_CONFIG = toml.load(CONFIG_FILE)
-MARKDOWN_PATH = LOADED_CONFIG["path"]
+MARKDOWN_PATH = Path(LOADED_CONFIG["markdown_path"])
 
 DELETE = False
 MD_FILES = [MDFile(x) for x in MARKDOWN_PATH.glob("**/*.md")]
@@ -662,6 +675,8 @@ ANKI_CONNECTOR = AnkiConnector()
 
 def main() -> None:
     for md_file in MD_FILES:
+        if md_file.md_file.stem.startswith("_") or md_file.md_file.stem.startswith("z_"):
+            continue
         md_file.import_clozes()
         md_file.import_definitions()
         md_file.import_header_question_answer()
