@@ -245,17 +245,27 @@ class AnkiConnector:
             The Anki ID of the card.
         """
         # Convert closure back to a searchable string
+        # regex_escaped_clozure = r"re:" + re.escape(clozure).replace("\\", "\\\\")
+
+        # This doesn't actually work and I hope it's never needed but this is the WIP implementation
+        # There is no easy way to search an exact string in Anki including clozures/html
         clozure = re.sub(r"{{c\d::(.*?)}}", r"\1", clozure)
 
         # Need to escape slashes
         clozure = clozure.replace("\\", "\\\\")
+        # clozure = clozure.replace(":", "")
+        # clozure = clozure.replace(",", "")
+        # clozure = clozure.replace("(", "\\(")
+        # clozure = clozure.replace(")", "\\)")
+        # clozure = re.sub(r"<[^>]+>", "", clozure)
 
         params = {"query": clozure}
         matches = self.invoke("findNotes", params)
         if len(matches) == 1:
             return matches[0]
 
-        error_msg = f"Expected 1 match, got {len(matches)}"
+        error_msg = f"Expected 1 match, got {len(matches)} on string {clozure}"
+
         raise ValueError(error_msg)
 
     def card_info(self, card_id: int) -> dict[str, Any]:
@@ -404,7 +414,7 @@ class HeaderQuestionAnswer(BaseMultiLineFlashcard):
                 if re.match(regex, line_content):
                     return line_number - 1
 
-        error_msg = "Question end not found"
+        error_msg = f"Question end not found in file {self.md_file} on line {self.question_start_line}"
         raise ValueError(error_msg)
 
     def get_answer_end_line(self) -> int:
@@ -467,11 +477,11 @@ class InlineQuestionAnswer(BaseMultiLineFlashcard):
         for line_number, line_content in enumerate(self.file_lines):
             # Checks all lines after the current line to find an Answer line and then backtracks
             if line_number > self.question_start_line:
-                regex = r" " + "{" + str(self.question_level) + "}" + r"-\sAnswer"
+                regex = r"\t" + "{" + str(self.question_level) + "}" + r"-\sAnswer"
                 if re.match(regex, line_content):
                     return line_number - 1
 
-        error_msg = "Question end not found"
+        error_msg = f"Question end not found in file {self.md_file} on line {self.question_start_line} with text {self.file_lines[self.question_start_line]}"
         raise ValueError(error_msg)
 
     def get_answer_start_line(self) -> int:
@@ -616,6 +626,7 @@ class MDFile:
                 cloze = Cloze(self.md_file, line_content)
                 cloze.import_flashcard()
                 self.updated_file_lines[line_number] = cloze.new_line_content(self.file_lines, line_number)
+                self.export_file()
 
     def import_definitions(self) -> None:
         """Import definition flashcards from the markdown file."""
@@ -624,6 +635,7 @@ class MDFile:
                 definition = Definition(self.md_file, line_content)
                 definition.import_flashcard()
                 self.updated_file_lines[line_number] = definition.new_line_content(self.file_lines, line_number)
+                self.export_file()
 
     def import_header_question_answer(self) -> None:
         """Import header question answer flashcards from the markdown file."""
@@ -632,6 +644,7 @@ class MDFile:
                 flashcard = HeaderQuestionAnswer(self.md_file, self.file_lines, line_number)
                 flashcard.import_flashcard()
                 self.updated_file_lines[flashcard.answer_end_line] = flashcard.new_line_content()
+                self.export_file()
 
     def import_inline_question_answer(self) -> None:
         """Import inline question answer flashcards from the markdown file."""
@@ -640,6 +653,7 @@ class MDFile:
                 flashcard = InlineQuestionAnswer(self.md_file, self.file_lines, line_number)
                 flashcard.import_flashcard()
                 self.updated_file_lines[flashcard.answer_end_line] = flashcard.new_line_content()
+                self.export_file()
 
     def export_file(self) -> None:
         """Export the markdown file with Anki tags."""
@@ -657,7 +671,7 @@ class MDFile:
         if text.startswith("-"):
             text = text[1:].strip()
 
-        return text.startswith("**") and len(re.findall(r"\*\*(.*?)\*\*:", text)) == 1
+        return bool(re.search(r"^\*\*(.*?)\*\*:", text)) and text.count("**") == 2
 
 
 # Load INPUT_DiR from config.toml
